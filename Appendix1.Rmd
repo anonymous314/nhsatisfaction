@@ -1,0 +1,1073 @@
+---
+title: "Appendix 1 - What factors explain resident satisfaction in Swedish nursing homes?"
+output:
+  pdf_document: default
+  html_document: default
+toc: yes
+urlcolor: blue
+---
+
+## Draft for peer review
+
+This document provides a reproducible accounting of the steps taken to produce the results presented in the manuscript "What factors explain resident satisfaction in Swedish nursing homes?", as well as a number of additional exploratory analyses performed to arrive at the final models presented in the paper, and post hoc analyses performed to investigate effects identified in the main analysis. The R code used to generate the tables, graphs, and model summaries presented here has been hidden for the sake of readability, but the code underlying this document may be accessed for reproduction at [https://github.com/anonymous314/nhsatisfaction](https://github.com/anonymous314/nhsatisfaction). Please feel free to download, run, and tinker with the analysis yourself!
+
+```{r setup,echo = FALSE,message=FALSE,warning=FALSE}
+set.seed(42)
+
+## For reading and transforming data
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(reshape2)
+
+## For model development and testing
+library(rms)
+library(lme4)
+library(lmtest)
+library(sjstats)
+library(mediation)
+
+##for generating tables and plots
+library(ggplot2)
+library(gridExtra)
+library(knitr)
+library(kableExtra)
+library(psych)
+
+## Don't use scientific notation
+options(scipen = 999)
+
+## set knit options
+
+knitr::opts_chunk$set(echo = FALSE,
+                      warning = FALSE,
+                      message = FALSE,
+                      cache = FALSE,
+                      fig.width = 10,
+                      fig.height = 5,
+                      fig.align = "center",
+                      dpi = 300)
+
+```
+
+```{r load, warning=FALSE}
+
+source("functions.R", encoding = "UTF-8")
+
+#https://www.socialstyrelsen.se/SiteCollectionDocuments/enhetsundersokningen-samtliga-resultat-2016.xls
+unitfile <- "./Data/enhetsundersokningen-samtliga-resultat-2016.xls"
+
+userfile <- "./Data/Aldre-sabo-verksamheter-2016.xls"
+
+munifile <- "./Data/171031_koladadata.xls"
+
+corrfile <- "./Data/180313_newunitnames.csv"
+
+unit <- load_unitsurvey(unitfile)
+user <- load_usersurvey(userfile)
+muni <- load_muni(munifile)
+
+cleanunit <- clean_unit_data(unit,corrfile)
+cleanuser <- clean_user_data(user)
+
+aggunit <- aggregate_unit_data(cleanunit)
+agguser <- aggregate_user_data(cleanuser)
+
+cleandata <- combine_unit_user_muni(unit,cleanuser,muni)
+
+aggdata <- combine_unit_user_muni(aggunit,agguser,muni)
+
+prettynames <- c(
+  "name" = "Name of nursing home",
+  "muni" = "Municipality",
+  "munin" = "Municipality ID",
+  "size" = "Size of nursing home",
+  "unitprivate"= "Private ownership per Unit Survey",
+  "typegen" = "Has general care facilities",
+  "typedem" = "Has dementia care facilities",
+  "typeserv" = "Has assisted living facilities",
+  "residentcouncil" = "Participation in\nresident councils",
+  "actionplan" = "Individualized\naction plans",
+  "meals" = "Meal-related\nroutines and plans"  ,
+  "safetyroutines" =  "Patient safety\nroutines",
+  "activity" = "Availability of\nexercise and activity",        
+  "carecoord" = "Care coordination\nroutines"   ,
+  "medreview" = "Medication review\nroutines",
+  "rns" = "Nurses per resident",
+  "staff" = "Staff per resident",
+  "edu" = "Staff with adequate\neducation ",
+  "match" = "match",
+  "userprivate" = "Private ownership per User Survey",
+  "userresponse" = "Response rate to User Survey",
+  "sattot" = "Aggregate\nresident satisfaction",
+  "srhtot" = "Aggregate Self-Rated Health",
+  "private" = "Private ownership",
+  "user24" = "Overall user satisfaction",
+  "pop65innh" = "Population 65+ in Nursing Home (%)",
+  "pop65" = "Population 65+ (%)",
+  "popkm" = "Population per square kilometer",
+  "costperpt" = "Average annual cost per resident (SEK)",
+  "nhage" = "Average age of residents in nursing homes",
+  "polcontrol" = "Political control (left = -1, mixed = 0, right = 1)",
+  "taxpower" = "Average annual per capita taxable income (SEK)")
+
+```
+
+## Exploratory Factor analysis - Unit survey
+
+Let's examine our two nursing home-level datasets seperately first to identify internal patterns. A good first step is to investigate patterns with a correlation plot. Since many of the raw continuous variables are not normally distributed, we use Spearman rank correlations to characterize associations. We'll use complete case analysis here since we're only looking for general patterns. Since one question was missing for all short-term service facilities, we exclude these from the analysis.
+
+```{r efaunit}
+unitclean <- cleanunit[,4:31] %>% dplyr::select(-typeserv) %>% filter(complete.cases(.))
+
+cormat <- cor(unitclean, method= "spearman") %>% melt(.)
+
+ggplot(data = cormat, aes(x=Var2, y=Var1, fill=value)) + 
+  geom_tile() +
+  scale_y_discrete(name="", limits = rev(levels(cormat$Var2))) +
+  scale_fill_gradient2(low = "red",high = "blue",mid = "white",midpoint = 0) +
+  theme(axis.text.x = element_text(angle = 50, hjust = 1))
+
+```
+
+There is a lot to unpack here! Survey question descriptions may be found in a separate appendix, but generally, questions 1-7 assess for processes relating to individualized care, questions 8 and 8a-b assess for access to exercise and activities, questions 9-14 assess for processes related to patient safety, while questions 13-18 relate to staffing and education levels during the weekday and weekend.
+
+To formalize our analysis, we performed a principal components analysis to help us decide how to proceed. Again, we use Spearman rank correlations to account for the heterogeneous distributions found in the data. We'll consider only the actual survey questions, as we have a strong theoretical basis for including the structural nursing home measures (Size, private ownership, and type of services provided) in our final analysis.
+
+```{r pcaunit,warning=F}
+
+unitquestions <- unitclean[-(1:4)]
+
+#alpha(unitquestions, check.keys=TRUE)$total$raw_alpha
+
+unitquestioncormat <- cor(unitquestions, method= "spearman")
+
+unitpca <- princomp(unitquestions)
+
+kable(data.frame(Factor = 1:10, Eigenvalue = eigen(unitquestioncormat)$values[1:10]),
+      "latex",booktabs = T) %>%
+  kable_styling(full_width = F)
+
+screeplot(unitpca)
+
+```
+
+Based on the rule of thumb for an eigenvalue cutoff of 1, we find support for perhaps 7 or 8 factors in this data set, though the variance explained by these final factors becomes quite low. Let's see what a factor analysis can tell us. Note that we performed analyses using a range of rotation methods and factor counts, and readers are encouraged to experiment further with this data. 
+
+The NBHW groups these questions into 10 domains, which somewhat exceeds the number of components suggested by PCA, though we chose to retain these groups due to their conceptual value. Despite tinkering with optimization values, attempting to fit 10 factors resulted in a non-convergent model, so we present here an analysis based on 9 factors using varimax rotation.
+
+```{r factanalunit}
+factanal(~.,data=unitquestions, rotation = "varimax", factors = 9)
+```
+
+See appendix 1 for a description of which variables were included in which conceptual categories. Generally, the questions loaded quite well only the categories proposed by the NBHW.
+
+## Exploratory Factor analysis - User survey
+
+Here, we essentially redo the same steps with the user data. We'll have to exclude question 26 (who completed the questionnaire) due to the high rate of missingness (84%).
+
+```{r efauser}
+
+userclean <- cleanuser[,1:26] %>% dplyr::select(-starts_with("user26")) %>% filter(complete.cases(.))
+
+#alpha(userclean)$total$raw_alpha
+
+cormat <- cor(userclean, method= "spearman") %>% melt(.)
+
+ggplot(data = cormat, aes(x=Var2, y=Var1, fill=value)) + 
+  geom_tile() +
+  scale_y_discrete(name="", limits = rev(levels(cormat$Var2))) +
+  scale_fill_gradient2(low = "red",high = "blue",mid = "white",midpoint = 0) +
+  theme(axis.text.x = element_text(angle = 50, hjust = 1))
+
+```
+
+This doesn't bode well for extracting distinct factors. All the questions seem quite correlated, with only a few questions (1-3, 20, and 25) sticking out as less interrelated than the rest. 
+
+```{r pcauser}
+
+
+
+usercormat <- cor(userclean, method= "spearman")
+
+userpca <- princomp(userclean)
+
+kable(data.frame(Factor = 1:10, 
+                 Eigenvalue = eigen(usercormat)$values[1:10]), 
+      "latex",
+      booktabs = T) %>%
+  kable_styling(full_width = F)
+
+screeplot(userpca)
+
+```
+
+We see that the factor loadings drop quite dramatically down to just above an eigenvalue of 1. We chose to extract only 2 factors from this dataset, representing a measure of self-rated health (Questions 1-3 and 20), and an aggregate measure of satisfaction (the remainder sans question 26 which had 84% missing values). We opted to make this distinction based on theory in light of the highly colinear nature of this dataset, but for completeness, here are the factor loadings assuming 2 factors.
+
+```{r factanaluser}
+factanal(~., data=userclean, rotation = "varimax", factors = 2)$loadings
+```
+
+It may be noted that these loadings are quite sensitive to changes in rotation and number of factors.
+
+## Dropout analysis
+
+Of the 2088 nursing homes in the unit survey, and the 1921 homes in the user survey, we were able to successfully match 1798 of these (86% and 93% of the homes reported in each respective dataset) to create a combined dataset. One potential source of bias is differences in variables associated with not being matched. Let's take a look at how our variables differ between matched and non-matched NHs.
+
+First for the unit survey:
+ 
+```{r dropoutunit}
+
+unitmatch <- mutate(aggunit, match = ifelse(paste(name,munin) %in% 
+                                              paste(aggdata$name,aggdata$munin),1,0))
+usermatch <- mutate(agguser, match = ifelse(paste(name,munin) %in% 
+                                              paste(aggdata$name,aggdata$munin),1,0))
+
+
+## Apply pretty names
+names(unitmatch) <- sapply(names(unitmatch), function(x){
+  x <- prettynames[which(names(prettynames) == x)]
+})
+
+names(usermatch) <- sapply(names(usermatch), function(x){
+  x <- prettynames[which(names(prettynames) == x)]
+})
+
+#save(unitmatch,file="unitmatch.rda")
+
+kable(cbind(descriptive_table(unitmatch[unitmatch$match == 1,-c((1:3),11,16)]),
+            descriptive_table(unitmatch[unitmatch$match == 0,-c((1:3),11,16)]),
+            sapply(unitmatch[-c((1:3),11,16)],function(x){
+              round(wilcox.test(x~unitmatch$match)$p.value,3)
+            })),
+      "latex",
+      booktabs = T,
+      col.names = c(rep(c("Mean","SD", "Median","IQR","Missing"),2),
+                    "U-test P-value")) %>%
+  add_header_above(c(" " = 1,"Matched" = 5,"Not Matched" = 5," " = 1)) %>%
+  kable_styling(full_width = T) %>%
+  column_spec(1, width = "3cm")
+
+```
+
+And then for the User survey
+
+```{r dropoutuser}
+
+kable(cbind(descriptive_table(usermatch[usermatch$match == 1,-c((1:3),7,8)]),
+            descriptive_table(usermatch[usermatch$match == 0,-c((1:3),7,8)]),
+            sapply(usermatch[-c((1:3),7,8)],function(x){
+              round(wilcox.test(x~usermatch$match)$p.value,3)
+            }))
+            ,
+      "latex", 
+      booktabs = T,
+      col.names = c(rep(c("Mean","SD", "Median","IQR","Missing"),2),
+                    "U-test P-value")) %>%
+  add_header_above(c(" " = 1,"Matched" = 5,"Not Matched" = 5," " = 1)) %>%
+  kable_styling(full_width = T) %>%
+  column_spec(1, width = "3cm")
+
+```
+
+It appears that non-matched nursing homes are quite a bit smaller than matched homes, score quite a bit lower on process-related measures, and have fewer opportunities for physical activity. In terms of the satisfaction survey, We find that non-matched homes have perhaps slightly lower self-rated health and satisfaction than their matched counterparts. As demonstrated using Mann-Whitney U tests, several differences in the Unit survey items noted here are significant, while only the self rated health variable in the user survey may be shown to differ significantly between matched and non-matched nursing homes.
+
+## Descriptive statistics
+
+Now that we have a grip on these datasets, lets take a look at our combined dataset. Let's begin with some descriptive data for the aggregated measures which we developed based on our exploratory analysis. This is Table 1 in the manuscript
+
+```{r desc}
+
+descdata <- aggdata %>%
+  dplyr::select(sattot,
+         residentcouncil,
+         actionplan,
+         meals,
+         safetyroutines,
+         carecoord,
+         medreview,
+         activity,
+         private,
+         size,
+         rns,
+         staff,
+         edu,
+         typegen,
+         typedem,
+         typeserv,
+         srhtot,
+        pop65innh,
+        pop65,
+        popkm,
+        costperpt,
+        nhage,
+        polcontrol,
+        taxpower) %>%
+  mutate_at(vars(2:8),funs(scale(.)))
+
+## apply pretty names
+
+names(descdata) <- sapply(names(descdata), function(x){
+  x <- prettynames[which(names(prettynames) == x)]
+})
+
+kable(descriptive_table(descdata),
+      "latex",
+      booktabs = T,
+      col.names = c("Mean",
+                    "SD", 
+                    "Median",
+                    "IQR",
+                    "Missing")) %>%
+  kable_styling(full_width = T) %>%
+  column_spec(1, width = "6cm")
+
+# This causes weird latex errors with booktabs..
+# %>%
+#   group_rows("Outcome", 1,1)%>%
+#   group_rows("Process factors", 2,8) %>%
+#   group_rows("Structural factors", 9,13) %>%
+#   group_rows("Control", 14,17) %>%
+#   group_rows("Municipal controls (Average weighted by #
+#              of nursing homes in Municipality)",18,24)
+  
+```
+
+
+## Regression diagnostics
+
+Let's first check some model assumptions for a simple linear regression consisting of all our predictor variables. While we'll be using a few different models in our analysis, this should give us a good picture of what to look out for.
+
+```{r diag_fit}
+
+dd <- datadist (aggdata); options(datadist = 'dd')
+
+fullfrml <- formula(sattot ~ residentcouncil + actionplan + meals + safetyroutines +
+                      carecoord + medreview + activity + private + size + rns + staff +
+                      edu + typegen + typedem + typeserv + srhtot)
+
+
+# Fit a couple of models for testing
+
+#A couple of equivalent models to test with 
+lmfit <- lm(fullfrml,data=aggdata)
+olsfit <- ols(fullfrml,x=TRUE,y=TRUE, data = aggdata)
+```
+QQ-plot of residuals
+```{r diag_qqnorm}
+# check distribution of residuals
+qqnorm(lmfit$residuals)
+qqline(lmfit$residuals)
+```
+Plot of residuals v. fitted values
+```{r diag_resid}
+qplot(lmfit$residuals,lmfit$fitted.values) +
+  labs(x = "Residuals",y="Fitted values")
+```
+Breusch-Pagan test of heteroskedasticity:
+```{r diag_bp}
+# perform Breusch-Pagan test of heteroskedasticity
+bptest(lmfit) ## the bptest function doesnt play nice with the rms package
+```
+Variable Inflation Factors:
+```{r diag_vif}
+# check for mutlicolinearity
+vif(olsfit)
+```
+Bootstrap validation results:
+```{r diag_boot}
+#perform bootstrap validation
+validate(olsfit,B=200)
+```
+
+While we don't seem to have problems with overfitting, we do have some outliers which could affect inferences in a linear model assuming normally distributed residuals. While mutlicolinearity is below typically accepted thresholds, for some of the process measures, the variable inflation factor is high enough that it could cast some doubt on the interpretation of our results. To avoid this, we'll estimate each predictor variable independently.
+
+Our model also has some trouble with heteroskedasticity per the Breusch-Pagan test, and a visual inspection of residuals reveals some potential influential outliers. It seems likely that this is due to the skew in outcome data, and as such is likely to be an issue in more restricted models as well. To deal with this, we chose to use the Huber-White sandwich estimator to provide consistent coefficient estimates..
+
+Next, let's take a look at our heirachial models. We developed our models based on theory, and we're primarily interested in estimating fixed effects, but getting a sense of inter- and intra- municipality variation is quite interesting, and it's always a good idea to verify that the variables we're adding actually contribute to a good model fit.
+
+```{r mldiag}
+# filter complete cases
+compaggdata <- aggdata %>% dplyr::select(-fill_self) %>% filter(complete.cases(.))
+
+# generate null model
+nullmlfrml <- formula(sattot ~ 1 + (1|munin))
+
+mlnull <- lmer(nullmlfrml,data=compaggdata)
+
+# generate model without muni-level predictors
+mlfrmlnomunivars <- formula(sattot ~ residentcouncil + actionplan + 
+                              meals + safetyroutines + carecoord + 
+                              medreview + activity + private + size + 
+                              rns + staff + edu + typegen + typedem + 
+                              typeserv + srhtot + (1|munin))
+
+mlnh <- lmer(mlfrmlnomunivars,data=compaggdata)
+
+# generate full model used in the paper
+fullmlfrml <- formula(sattot ~ residentcouncil + actionplan + meals +
+                        safetyroutines + carecoord + medreview + 
+                        activity + private + size + rns + staff + edu +
+                        typegen + typedem + typeserv + srhtot +
+                        pop65innh + pop65 + popkm + costperpt +  nhage + 
+                        polcontrol + taxpower + (1|munin))
+
+mlnhmuni <- lmer(fullmlfrml,data=compaggdata)
+```
+Check intra-class correlation:
+```{r diag_icc}
+#check intra-class correlation coefficient
+icc(mlnull)
+```
+ANOVA test to check for model superiority:
+```{r diag_anova}
+# perform anova to check results of chisq test
+anova(mlnull,mlnh)
+anova(mlnh,mlnhmuni)
+
+```
+QQ plot of random effect residuals:
+```{r diag_ranefresid}
+#extract random effect intercepts
+r_int<- ranef(mlnhmuni)$munin$`(Intercept)`
+
+# check for normality
+qqnorm(r_int)
+qqline(r_int)
+
+```
+
+We can interpret the ICC as indicating that 9.9% of the variation in satisfaction occurs at the municipality level. Based on ANOVA results, we find that including both the nursing home level and municipality level fixed effects contribute to a good model fit. Note that while we tried fitting some models with random slopes as well, many municipalities lack a sufficient sample size for this approach to (in our attempts) produce reliable results. We see that there is some deviation from normality in the sparse lower quantiles, but this seems close enough to generate valid inferences, especially given the use of bootstrapping to generate confidence intervals.
+
+## Regression models
+
+While it was nice to see some interpretable values in the descriptive statistics, in order to generate comparable regression coefficients, we're going to have to standardize our measures before estimation.
+
+```{r standardize}
+stdaggdata <- aggdata %>% 
+  dplyr::select(-fill_self) %>% 
+  mutate_at(vars(c(4:26,28,30)),funs(as.numeric(scale(.))))
+
+dd <- datadist(stdaggdata); options(datadist = 'dd')
+
+```
+
+Now let's go ahead and print each of the coefficient estimates reported in figure 1, and construct the figure included in the article:
+
+```{r fitmods,message=F,warning=F, fig.height = 8}
+
+## Define test and control variables
+
+allvars <- c("residentcouncil", "actionplan", "meals", "safetyroutines", "carecoord",
+             "medreview", "activity", "private", "size", "rns", "staff", "edu",
+             "typegen", "typedem", "typeserv", "srhtot")
+
+testvars <- c("residentcouncil", "actionplan", "meals", "safetyroutines", "carecoord",
+              "medreview", "activity", "private", "size", "rns", "staff", "edu")
+
+controlvars <- "+ typegen + typedem + typeserv + srhtot"
+
+proctestvars <- c("residentcouncil", "actionplan", "meals", "safetyroutines", "carecoord",
+                  "medreview", "activity")
+
+proccontrolvars <- "+ private + size + rns + staff + edu + typegen + typedem + typeserv + srhtot"
+
+
+## Fit single level models
+
+fitfull <- robcov(ols(fullfrml, data = stdaggdata,x=TRUE,y=TRUE))
+
+allvarspretty <- get_names(allvars)
+
+coefsingle <- cbind("Bivariate", 
+                    t(sapply(allvars, 
+                             function(x) coefs_single(x,stdaggdata))))
+coefcontrol <- cbind("Health controlled", 
+                     t(sapply(testvars, 
+                              function(x) coefs_controlled(x,controlvars,stdaggdata))))
+coefproccontrol <- cbind("Health and Structure\ncontrolled", 
+                         t(sapply(proctestvars, 
+                                  function(x) coefs_controlled(x,proccontrolvars,stdaggdata))))
+
+coefs <- data.frame(fw = "1a - Classical OLS Regression",
+                    var = c(allvars,testvars,proctestvars), 
+                    rbind(coefsingle,coefcontrol,coefproccontrol),
+                    stringsAsFactors = F) %>%
+  mutate_at(vars(4:6), funs(as.numeric(.))) %>%
+  rename_all(funs(c("fw","var","model","est","low","high"))) %>%
+  mutate(var = get_names(var),
+         model = factor(model,levels = c("Bivariate",
+                                         "Health controlled",
+                                         "Health and Structure\ncontrolled")),
+         var = factor(var,levels = rev(allvarspretty))) 
+### fit multi-level models
+
+
+mlcoefsingle <- cbind("Bivariate", 
+                    t(sapply(allvars, 
+                             function(x) coefs_ml_single(x,
+                                                         stdaggdata))))
+mlcoefcontrol <- cbind("Health controlled", 
+                     t(sapply(testvars, 
+                              function(x){
+                                 coefs_ml_controlled(x,
+                                                     controlvars,
+                                                     stdaggdata)
+                              })))
+mlcoefproccontrol <- cbind("Health and Structure\ncontrolled", 
+                         t(sapply(proctestvars, 
+                                  function(x){
+                                    coefs_ml_controlled(x,
+                                                        proccontrolvars,
+                                                        stdaggdata)
+                                  })))
+
+
+mlcoefs <- data.frame(fw = "1b - Mixed-Effects regression with\n
+Municipal-level control variables",
+                      var = c(allvars,testvars,proctestvars), 
+                    rbind(mlcoefsingle,mlcoefcontrol,mlcoefproccontrol),
+                    stringsAsFactors = F) %>%
+  mutate_at(vars(4:6), funs(as.numeric(.))) %>%
+  rename_all(funs(c("fw","var","model","est","low","high"))) %>%
+  mutate(var = get_names(var),
+         model = factor(model,levels = c("Bivariate",
+                                         "Health controlled",
+                                         "Health and Structure\ncontrolled")),
+         var = factor(var,levels = rev(allvarspretty)))
+
+## generate tables and plots
+
+allcoefs <- rbind(coefs,mlcoefs)
+
+coefsnocontrol <- allcoefs %>% filter(!var %in% c("Has general care facilities",
+                                                  "Has dementia care facilities",
+                                                  "Has assisted living facilities",
+                                                  "Aggregate Self-Rated Health"))
+
+varg <- data.frame(var = unique(coefsnocontrol$var),
+                   group = factor(c(rep("Individualized care",3),
+                             rep("Safe care",3),
+                             "Activity",
+                             "Ownership",
+                             "Size",
+                             rep("Staffing",3))),
+                   type = factor(c(rep("Processual measures",7),rep("Structural measures",5))))
+
+varg$group <- factor(varg$group,levels(varg$group)[c(2,4,1,3,5,6)])
+
+coefsnocontrol <- left_join(coefsnocontrol,varg)
+
+t <- allcoefs %>% left_join(.,varg) %>%
+  group_by(fw,group,model) %>%
+  #mutate(gest = mean(round(est,3))) %>%
+  #ungroup() %>%
+  mutate(est = paste0(round(est,3),
+                                      " (",round(low,3),
+                                      " - ",round(high,3),")")) %>%
+  dplyr::select(-low,-high) %>% spread(model,est) %>% 
+  arrange(fw,desc(var))
+
+p <- ggplot(coefsnocontrol) +
+  geom_pointrange(aes(ymin = low,
+                      ymax = high,
+                      y = est,
+                      x = var,
+                      group = model,
+                      color = model),
+                  position=position_dodge(width=0.7),
+                  size = 1.5,
+                  fatten = 2) +
+  scale_y_continuous(position = "top") +
+  labs(y = "Standardized regression coefficient (95% CI)",
+       x = "Predictor variable",
+       legend = "Model") +
+  theme_bw()+
+  theme(legend.position="bottom", 
+        panel.grid.major.y = element_blank(),
+        text=element_text(size=13),
+        panel.spacing.y = unit(0, "lines")) +
+  guides(color=guide_legend(nrow=3,
+                            byrow=FALSE,
+                            title="Model", 
+                            reverse = T)) +
+  geom_vline(xintercept=seq(1.5, length(unique(coefsnocontrol$var))-0.5, 1), 
+             lwd=0.5, colour="lightgrey") +
+  geom_hline(yintercept = 0) +
+  scale_color_manual(values = c("#66CCFF","#0099CC","#003399")) +
+  facet_grid(type + group ~ fw, scales = "free_y",space = "free_y") +
+  coord_flip()
+
+kable(t,"latex",
+      booktabs = T,
+      longtable = T) %>%
+  kable_styling(full_width = T)
+
+
+p
+
+
+```
+
+
+These results are discussed in detail in the manuscript. Lets also go ahead and print out the full list of model coefficients for the full multi-level model including municipal level controls. Note that these differ slightly from the data reported in the manuscript - We chose to control for confounding effects in a somewhat more restricted manner than simply including every predictor in a multivariable model.
+
+```{r modelcoefs}
+
+## OLS model summary
+#round(as.data.frame(summary(fitfull)),3)[-8]
+
+
+## multi-level model summary
+mlnhmunifull <- lmer(fullmlfrml,data=stdaggdata)
+
+t <- cbind(fixef(mlnhmunifull),confint(mlnhmunifull,method = "boot")[-(1:2),])
+
+kable(t,"latex",
+      booktabs = T)
+
+```
+
+# Post-hoc analyses
+
+## Non-linear effects
+
+While we chose to assume linearity in our reported models to provide a more intuitive interpretation of our results, we did assess for non-linear effects using restricted cubic splines with interesting results. Since we're only interested in the form of the spline, and not the absolute effect of the variable here, we can load all of our variables into a single model for ease of analysis. 
+
+```{r rcs}
+
+dd <- datadist(aggdata); options(datadist = 'dd')
+
+rcsfrml <- formula(sattot ~ residentcouncil + rcs(actionplan) + rcs(meals) + 
+                     rcs(safetyroutines) + carecoord + medreview + rcs(activity) +
+                     rcs(srhtot) + rcs(size) + rcs(rns) + rcs(staff) + rcs(edu))
+
+fitrcs <- ols(rcsfrml, data = aggdata, x=TRUE, y=TRUE)
+
+rcsplot <- plot(Predict(fitrcs),data=stdaggdata, name=c("residentcouncil",
+                                                        "actionplan", "meals",
+                                                        "safetyroutines", "carecoord",
+                                                        "medreview", "activity",
+                                                        "size","srhtot","rns",
+                                                        "staff","edu"))
+
+rcsfrmlse <- formula(sattot ~ rcs(staff) + rcs(edu))
+
+fitrcsse <- ols(rcsfrmlse, data = aggdata, x=TRUE, y=TRUE)
+
+rcsplotse <- plot(Predict(fitrcsse),data=aggdata, 
+                  par.settings = list(layout.heights = list(strip = 2.5)))
+
+rcsplotse$condlevels$p <- c("Portion of staff with\nadequate education",
+                            "Staff per resident")
+rcsplot ## plot all continuous valiables
+
+```
+
+We see that some variables display interesting patterns using this technique. Some are not readily interpretable, but two in particular stand out as candidates for further investigation, namely the variables for staff education and non-nurse staffing levels:
+
+```{r rcsplot}
+rcsplotse
+```
+
+Here we see that for staff education, satisfaction drops from a peak around 94% with an "adequate" level of training to a lower level of satisfaction for sites reporting 100% "adequately educated" staff. We also see some suggestion of a threshold effect for staffing levels, with diminishing returns after increasing staffing ratios beyond 0.3 staff per resident. These effects are not quite significant, and performing detailed post hoc analysis is likely to lead to high "researcher degrees of freedom" - as such we leave these findings to be pursued in further research.
+
+## Mediation analysis
+
+To investigate potential mediation effects at the nursing home level, we performed an analysis of average causal mediation effects (ACME) between each of the process and structure measures.
+
+```{r acme}
+# Function to extract ACME component for a given set of treatment and mediation variables
+check_ACME <- function(out = "sattot",treat,med, data){
+  
+  medfrml <- formula(paste(med,"~",treat))
+  outfrml <- formula(paste(out,"~",treat,"+",med))
+  
+  med.fit <- lm(medfrml, data = data)
+  out.fit <- lm(outfrml, data = data)
+  
+  med.out <- mediation::mediate(med.fit, 
+                                out.fit, 
+                                treat = treat,
+                                mediator = med, 
+                                boot = TRUE, 
+                                sims = 100)
+  mosum <- summary(med.out)
+  
+  return (c(est = mosum$n0,mosum$n0.ci, p = mosum$n0.p))
+}
+
+
+data <- stdaggdata[complete.cases(stdaggdata),]
+
+procvars <- c("residentcouncil", "actionplan", "meals", "safetyroutines",
+              "carecoord", "medreview", "activity")
+strvars <- c("size","staff","rns","edu","private")
+
+med <- data.frame(measure = character(0),
+                  mediator = character(0),
+                  est = numeric(0),
+                  low = numeric(0),
+                  high = numeric(0),
+                  p = numeric(0),
+                  stringsAsFactors = F)
+row = 1
+
+for(i in 1:length(strvars)){
+  s = strvars[i]
+  for(j in 1:length(procvars)){
+    p = procvars[j]
+    
+    med[row,] <- c(paste(s),paste(p),check_ACME(treat = s, med = p, data = data))
+    row = row + 1
+  }
+}
+
+med <- med %>% mutate_at(vars(c(3:6)),funs(round(as.numeric(.),3)))
+
+kable(med, booktabs = T)
+
+```
+
+We see that by and large, the mediating effects in this data are quite weak, as may be expected in a dataset such as this with quite weak overall effects. Let's filter this using a p-value of 0.05 as a cutoff and plot the results:
+
+```{r plotacme}
+
+ggplot(filter(med,p<0.05)) +
+  geom_pointrange(aes(ymin = low, ymax = high, y = est,x = measure, color = mediator),
+                  position=position_dodge(width=0.7),
+                  size = 1,
+                  fatten = 2) +
+  coord_flip() +
+  guides(color=guide_legend(reverse = T)) +
+  theme_bw()
+
+
+```
+
+We find that most significant mediating effects are found with regards to nursing home size - With the most pronounced effect found with regards to exercise and activity. This suggests that the negative effect on satisfaction of larger nursing homes is to some extent mediated by the provision of more activities and individualized care processes - in other words, larger nursing homes provide more activities, explaining the increase in importance of the activity variable upon controlling for structural variables.
+
+## Sub-group analysis - Questionnaire completion
+
+Due to the high rate of missingness for question 26 ("Who completed the questionnaire?"), we could not include this quite interesting data in our main analysis. The NBHW reported data for this question only for nursing home units with more than 7 responses, and as such, only 16% of nursing homes had data for this variable. This is far from sufficient to base reliable inference on, and we know that this missingness is associated with a factor (size) which is associated with resident satisfaction. Nonetheless, a quick look at the distribution of these data may be enlightening. Overall among nuring homes reporting data, `r round(mean(cleanuser$user26_self,na.rm=T),1)`% of questionnaires were filled out by the residents themselves, `r round(mean(cleanuser$user26_help,na.rm=T),1)`% had assistance filling out the survey, and `r round(mean(cleanuser$user26_other,na.rm=T),1)`% of questionnaires were filled out by somebody other than the user themselves. This high proportion of questionnaires completed by third parties is disquieting... Lets see if the proportion of questionnaires filled out by the resident or the resident with help is associated with satisfaction scores:
+
+```{r qfill}
+
+stdaggdata$fill_self_scale <- scale(aggdata$fill_self)
+
+coefs_single("fill_self_scale",stdaggdata)
+
+```
+
+We see that in a simple bivariate model, completion of the user survey by the resident with or without help is associated with higher satisfaction scores (standardized beta coefficient of 0.11, 95% CI 0.01 - 0.22). Unfortunately, the NBHW does not report data on who the third party completing the questionnaire is - It is plausible that relatives completing the questionnaire are harsher in their judgements than the residents alone would be. Let's have a look as what predictors are associated with the resident themselves filling out the questionnaire with or without help:
+
+```{r qfill priv}
+
+qfill <- summary(robcov(ols(fill_self_scale ~ residentcouncil + actionplan + meals + safetyroutines +
+                      carecoord + medreview + activity + private + size + rns + staff +
+                      edu + typegen + typedem + typeserv + srhtot, data = stdaggdata,x=TRUE,y=TRUE)))
+
+stdaggdata <- dplyr::select(stdaggdata, -fill_self_scale)
+
+kable(round(as.data.frame(qfill),3)[-c(1:3,8)],booktabs = T)
+```
+
+Given the low sample size, we see few robust effects. Among our process and structure variables, only staffing ratio appears to have a substantial association with the percentage of questionnaires filled out by the resident - homes with higher staffing ratios to a greater extent are associated with surveys being completed by third parties. Among control variables, General care and short-term facilities have higher rates of resident completed surveys, while dementia facilities have lower rates. As may be expected, self rated health was also positively correlated with self-completion of the survey.
+
+Intuitively, this seems to suggest that staff may be completing questionnaires for patients - But then why would third party questionnaires be associated with lower satisfaction scores? Given high rates of non-random missingness for this variable, we'll resist the temptation to theorize about this effect too deeply.
+
+## Alternate models
+
+As in any secondary analysis of data, a number of decisions have been made in executing the analysis. Here, we present a set of analyses to explore possible alternative choices and evaluate the sensitivity of our findings to alternate methodologies. Kajonius & Kazemi (2016) chose for instance to analyze the user survey using question 24 (relating to the users overall satisfaction with nursing home care) as the dependant variable. Lets go ahead and take a look at what our results would look like if we had taken that route. (Note that there are problems with the distribution of residuals with this approach given the skewed distribution of individual questions)
+
+```{r altq24,message=F,warning=F, fig.height = 8}
+
+## Fit single level models
+
+coefsingle24 <- cbind("Bivariate", 
+                    t(sapply(allvars, 
+                             function(x) coefs_single(x,
+                                                      stdaggdata, 
+                                                      out = "user24"))))
+coefcontrol24 <- cbind("Health controlled", 
+                     t(sapply(testvars, 
+                              function(x) coefs_controlled(x,
+                                                           controlvars,
+                                                           stdaggdata, 
+                                                           out = "user24"))))
+coefproccontrol24 <- cbind("Health and Structure\ncontrolled", 
+                         t(sapply(proctestvars, 
+                                  function(x) coefs_controlled(x,
+                                                               proccontrolvars,
+                                                               stdaggdata, 
+                                                               out = "user24"))))
+
+coefs24 <- data.frame(fw = "1a - Classical OLS Regression",
+                      var = c(allvars,testvars,proctestvars), 
+                    rbind(coefsingle24,coefcontrol24,coefproccontrol24),
+                    stringsAsFactors = F) %>%
+  mutate_at(vars(4:6), funs(as.numeric(.))) %>%
+  rename_all(funs(c("fw","var","model","est","low","high"))) %>%
+  mutate(var = get_names(var),
+         model = factor(model,levels = c("Bivariate","Health controlled",
+                                         "Health and Structure\ncontrolled")),
+         var = factor(var,levels = rev(allvarspretty)))
+
+### fit multi-level models
+
+
+mlcoefsingle24 <- cbind("Bivariate", 
+                    t(sapply(allvars, 
+                             function(x) coefs_ml_single(x,stdaggdata, out = "user24"))))
+mlcoefcontrol24 <- cbind("Health controlled", 
+                     t(sapply(testvars, 
+                              function(x) coefs_ml_controlled(x,
+                                                              controlvars,
+                                                              stdaggdata, 
+                                                              out = "user24"))))
+mlcoefproccontrol24 <- cbind("Health and Structure\ncontrolled", 
+                         t(sapply(proctestvars, 
+                                  function(x) coefs_ml_controlled(x,
+                                                                  proccontrolvars,
+                                                                  stdaggdata, 
+                                                                  out = "user24"))))
+
+
+mlcoefs24 <- data.frame(fw = "1b - Mixed-Effects regression with\n
+Municipal-level control variables",
+                        var = c(allvars,testvars,proctestvars), 
+                    rbind(mlcoefsingle24,mlcoefcontrol24,mlcoefproccontrol24),
+                    stringsAsFactors = F) %>%
+  mutate_at(vars(4:6), funs(as.numeric(.))) %>%
+  rename_all(funs(c("fw","var","model","est","low","high"))) %>%
+  mutate(var = get_names(var),
+         model = factor(model,levels = c("Bivariate",
+                                         "Health controlled",
+                                         "Health and Structure\ncontrolled")),
+         var = factor(var,levels = rev(allvarspretty)))
+
+## generate tables and plots
+
+allcoefs24 <- rbind(coefs24,mlcoefs24)
+
+coefsnocontrol24 <- allcoefs24 %>% filter(!var %in% c("Has general care facilities",
+                                                      "Has dementia care facilities",
+                                                      "Has assisted living facilities",
+                                                      "Aggregate Self-Rated Health"))
+
+
+
+t24 <- coefs %>% mutate(est = paste0(round(est,3),
+                                     " (",round(low,3),
+                                     " - ",round(high,3),")")) %>%
+  dplyr::select(-low,-high) %>% spread(model,est) %>% 
+  arrange(desc(var))
+
+# p24 <- ggplot(coefsnocontrol24) +
+#   geom_pointrange(aes(ymin = low, 
+#                       ymax = high, 
+#                       y = est,
+#                       x = var, 
+#                       group = model,
+#                       color = model),
+#                   position=position_dodge(width=0.7),
+#                   size = 1,
+#                   fatten = 2) +
+#   scale_y_continuous(position = "top") +
+#   labs(y = "Standardized regression coefficient (95% CI)", 
+#        x = "Predictor variable", 
+#        legend = "Model") +
+#   theme_bw()+
+#   theme(legend.position="bottom", 
+#         panel.grid.major.y = element_blank(),
+#         text=element_text(size=18)) +
+#   guides(color=guide_legend(nrow=2,byrow=TRUE,title="Model")) +
+#   geom_vline(xintercept=seq(1.5, length(unique(coefsnocontrol$var))-0.5, 1), 
+#              lwd=0.5, colour="lightgrey") +
+#   geom_hline(yintercept = 0) +
+#   scale_color_manual(values=c("#FFCC00","#FF6600","#AA0114",
+#                               "#66CCFF","#0099CC","#003399")) +
+#   coord_flip()
+
+p24 <- ggplot(coefsnocontrol24) +
+  geom_pointrange(aes(ymin = low,
+                      ymax = high,
+                      y = est,
+                      x = var,
+                      group = model,
+                      color = model),
+                  position=position_dodge(width=0.7),
+                  size = 1,
+                  fatten = 2) +
+  scale_y_continuous(position = "top") +
+  labs(y = "Standardized regression coefficient (95% CI)",
+       x = "Predictor variable",
+       legend = "Model") +
+  theme_bw()+
+  theme(legend.position="bottom", 
+        panel.grid.major.y = element_blank(),
+        text=element_text(size=13)) +
+  guides(color=guide_legend(nrow=3,
+                            byrow=FALSE,
+                            title="Model", 
+                            reverse = T)) +
+  geom_vline(xintercept=seq(1.5, length(unique(coefsnocontrol$var))-0.5, 1), 
+             lwd=0.5, colour="lightgrey") +
+  geom_hline(yintercept = 0) +
+  scale_color_manual(values = c("#66CCFF","#0099CC","#003399")) +
+  facet_wrap(~fw) +
+  coord_flip()
+
+
+p24
+
+
+```
+
+We see that using only question 24 as the outcome, the results are quite a bit weaker. In this reading, only physical activity, the size of the nursing home, and the ratio of staff per resident are significant at the p < 0.05 level.
+
+We can also check to see if the larger number of small homes might be "washing out" effects relevant to a larger number of individual patients by weighting our data by the size of the nursing home. Note that we report only the OLS model, as lme4 had some difficulty generating appropriate confidence intervals for weighted observations. We welcome more talented programmers than ourselves to pursue this issue.
+
+```{r, altweight,message=F,warning=F, fig.height = 8}
+
+
+
+# remove data points with missing size value
+
+stdaggdata_weight <- cbind(stdaggdata,abssize = aggdata$size) %>% 
+  filter(!is.na(abssize))
+
+
+# Compare point estimates and parametric std errors for full model fixed effects
+# for weighted and unweighted full models instead of CIs 
+
+mlnhmuniWsum <- summary(lmer(fullmlfrml,
+                             data=stdaggdata_weight, 
+                             weights = stdaggdata_weight$abssize))
+mlnhmunisum <- summary(mlnhmuni)
+
+tval <- data.frame(unweighted = mlnhmunisum$coefficients[,3],
+           weighted = mlnhmuniWsum$coefficients[,3])
+
+coefsingleW <- cbind("Bivariate", 
+                    t(sapply(allvars, 
+                             function(x) coefs_single(x,
+                                                    stdaggdata_weight, 
+                                                    w = stdaggdata_weight$abssize))))
+coefcontrolW <- cbind("Health controlled", 
+                     t(sapply(testvars, 
+                              function(x) coefs_controlled(x,
+                                                    controlvars,
+                                                    stdaggdata_weight, 
+                                                    w = stdaggdata_weight$abssize))))
+coefproccontrolW <- cbind("Health and Structure\ncontrolled", 
+                         t(sapply(proctestvars, 
+                                  function(x) coefs_controlled(x,
+                                                    proccontrolvars,
+                                                    stdaggdata_weight, 
+                                                    w = stdaggdata_weight$abssize))))
+
+coefsW <- data.frame(fw = "1a - Classical OLS Regression",
+                    var = c(allvars,testvars,proctestvars), 
+                    rbind(coefsingleW,coefcontrolW,coefproccontrolW),
+                    stringsAsFactors = F) %>%
+  mutate_at(vars(4:6), funs(as.numeric(.))) %>%
+  rename_all(funs(c("fw","var","model","est","low","high"))) %>%
+  mutate(var = get_names(var),
+         model = factor(model,levels = c("Bivariate",
+                                         "Health controlled",
+                                         "Health and Structure\ncontrolled")),
+         var = factor(var,levels = rev(allvarspretty))) %>% 
+  filter(!var %in% c("Has general care facilities",
+                     "Has dementia care facilities",
+                     "Has assisted living facilities",
+                     "Aggregate Self-Rated Health"))
+
+# fit multi-level models
+
+# mlcoefsingleW <- cbind("Bivariate\n+ Muni",
+#                     t(sapply(allvars,
+#                              function(x) coefs_ml_single(x,
+#                                                 stdaggdata_weight,
+#                                                 w = stdaggdata_weight$abssize))))
+# mlcoefcontrolW <- cbind("Health controlled\n+ Muni", 
+#                      t(sapply(testvars, 
+#                               function(x) coefs_ml_controlled(x,controlvars,
+#                                                 stdaggdata_weight, 
+#                                                 w = stdaggdata_weight$abssize))))
+# mlcoefproccontrolW <- cbind("Health and Structure\ncontrolled\n+ Muni", 
+#                          t(sapply(proctestvars, 
+#                                   function(x) coefs_ml_controlled(x,proccontrolvars,
+#                                                 stdaggdata_weight, 
+#                                                 w = stdaggdata_weight$abssize))))
+# 
+# 
+# mlcoefsW <- data.frame(fw = "1b - Mixed-Effects regression with\n
+#Municipal-level control variables",
+#                       var = c(allvars,testvars,proctestvars), 
+#                     rbind(mlcoefsingleW,mlcoefcontrolW,mlcoefproccontrolW),
+#                     stringsAsFactors = F) %>%
+#   mutate_at(vars(4:6), funs(as.numeric(.))) %>%
+#   rename_all(funs(c("fw","var","model","est","low","high"))) %>%
+#   mutate(var = get_names(var),
+#          model = factor(model,levels = c("Bivariate",
+#                                         "Health controlled",
+#                                         "Health and Structure\ncontrolled")),
+#          var = factor(var,levels = rev(allvarspretty))) %>%
+#   filter(!var %in% c("Has general care facilities",
+#                      "Has dementia care facilities",
+#                      "Has assisted living facilities",
+#                      "Aggregate Self-Rated Health"))
+
+## generate tables and plots
+
+allcoefsW <- coefsW
+
+coefsnocontrolW <- allcoefsW %>%
+  filter(!var %in% c("Has general care facilities",
+                     "Has dementia care facilities",
+                     "Has assisted living facilities",
+                     "Aggregate Self-Rated Health"))
+
+
+
+tW <- coefsW %>% mutate(est = paste0(round(est,3),
+                                     " (",round(low,3),
+                                     " - ",round(high,3),")")) %>%
+  dplyr::select(-low,-high) %>% spread(model,est) %>% 
+  arrange(desc(var))
+
+pW <- ggplot(coefsnocontrolW) +
+  geom_pointrange(aes(ymin = low, 
+                      ymax = high, 
+                      y = est,
+                      x = var, 
+                      group = model, 
+                      color = model),
+                  position=position_dodge(width=0.7),
+                  size = 1,
+                  fatten = 2) +
+  scale_y_continuous(position = "top") +
+  labs(y = "Standardized regression coefficient (95% CI)", 
+       x = "Predictor variable", 
+       legend = "Model") +
+  theme_bw()+
+  theme(legend.position="bottom", 
+        panel.grid.major.y = element_blank(),
+        text=element_text(size=18)) +
+  guides(color=guide_legend(nrow=3,
+                            byrow=FALSE,
+                            title="Model", 
+                            reverse = T)) +
+  geom_vline(xintercept=seq(1.5, length(unique(coefsnocontrol$var))-0.5, 1), 
+             lwd=0.5, colour="lightgrey") +
+  geom_hline(yintercept = 0) +
+  scale_color_manual(values=c("#66CCFF","#0099CC","#003399")) +
+  facet_wrap(~fw) +
+  coord_flip()
+
+pW
+
+```
+
+We find similar results as compared with our standard OLS regression model.
