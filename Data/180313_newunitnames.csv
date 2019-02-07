@@ -1,0 +1,90 @@
+munin;name;newname
+115;Stångberga;Stångberga sjukhem
+138;Björkebo äldreboende;Björkbackens äldrecentrum
+139;Bro servicehus;Bro
+139;Kungsängens servicehus;Kungsängen
+162;Tallgården/Lärkträdet äldreboende;Tallgården/Lärkträdet äb
+180;Mälarbacken - somatisk inriktning;Mälarbacken - somatisk
+180;Skogsgläntans Gruppboende/Äldreliv;Skogsgläntans Gruppb/Äldreliv
+180;Fruängsgårdens vård- och omsorgsboende;Fruängsgårdens VoB
+180;Sabbatsbergs vård och omsorgsboende;Sabbatsbergs VoB
+180;Väderkvarnens vård- och omsorgsboende;Väderkvarnens VoB
+180;Edsätra vård- och omsorgsboende;Edsätra VoB
+180;Sätra Vård och omsorgsboende, Profilboende;Sätra VoB, Profilboende
+180;Sätra vård-och omsorgsboende, gruppboende;Sätra VoB, gruppboende
+180;Elinsborg Vård och Omsorgsboende;Elinsborg VoB
+180;Persikans vård- och omsorgsboende;Persikans VoB
+180;Bergsunds vård- och omsorgsboende;Bergsunds VoB
+180;Guldbröllopshemmets vård och omsorgsb.;Guldbröllopshemmets VoB
+180;Hornskrokens vård- och omsorgsboende;Hornskrokens VoB
+180;Katarinagårdens vård- och omsorgsboende;Katarinagårdens VoB
+180;Kulltorps vård och omsorgsboende;Kulltorps VoB
+180;Magdalenagårdens vård- och omsorgsboende;Magdalenagårdens VoB
+180;Nytorgsgårdens vård- och omsorgsboende;Nytorgsgårdens VoB
+180;Sjöstadsgårdens vård- och omsorgsboende;Sjöstadsgårdens VoB
+180;Sofiagårdens vård- och omsorgsboende;Sofiagårdens VoB
+180;Vindragarens vård- och omsorgsboende;Vindragarens VoB
+180;Liseberg Äldreboende, sjukhem;Liseberg Äb gruppboende
+180;Långbrobergs Vård- och Omsorgsboende;Långbrobergs VoB
+180;Solberga vård- och omsorgsboende;Solberga VoB
+180;Dianagården vård och omsorgsboende;Dianagården VoB
+180;Linnégårdens vård och omsorgsboende, gruppboende;Linnégårdens VoB, gruppboende
+184;Ametisten vård och omsorgsboende;Ametisten VoB
+184;Björkgården vård och omsorgsboende;Björkgården VoB
+184;Polhemsgården vård och omsorgsboende;Polhemsgården VoB
+184;Trygghetens vård och omsorgsboende;Trygghetens VoB
+192;Tallåsens vård- och omsorgsboende;Tallåsens VoB
+483;Igelkottens vård- och demensboende;Igelkottens vård- demensboende
+580;Aleris Stiglötsgatans äldreboende;Aleris Stiglötsgatans äb
+682;Nömmeberg vårdhem;Nömmeberg
+1280;Rönnen-NO;Rönnen
+1280;Segevångsgården   -   Förenade Care;Segevångsgården- Förenade Care
+1280;Vä Varvsg Attendo   -   Attendo C;Vä Varvsg Attendo -Attendo C
+1280;Lindängelund  -   SÖ;Lindängelund
+1280;Hyllie Park   -   Äldreboende AB;Hyllie Park   -   Äldreboende
+1280;Victoria Vård o oms   -   Förenade Care;Victoria Vård oms Förenade Care
+1383;Vidhöge;Vidhöga
+1402;Grenvägens/Trädgårdens äldreboende;Grenvägens/Trädgårdens äb
+1485;Hovhult vård- och omsorgsboende;Hovhult VoB
+1485;Kaprifols vård- och omsorgsboende;Kaprifols VoB
+1485;Kilbäcken vård- och omsorgsboende;Kilbäcken VoB
+1485;Rosenhäll vård- och omsorgsboende;Rosenhäll VoB
+1485;Rotviksbro vård- och omsorgsboende;Rotviksbro VoB
+1485;Skogslyckan vård- och omsorgsboende;Skogslyckan VoB
+1485;Södertull vård- och omsorgsboende;Södertull VoB
+1485;Trubaduren vård- och omsorgsboende;Trubaduren VoB
+1485;Västanvinden vård- och omsorgsboende;Västanvinden VoB
+1485;Österängen vård- och omsorgsboende;Österängen VoB
+1496;Stiftelsen Skaraborgs läns sjukhem;Stift Skaraborgs läns sjukh
+2039;Särskilt boende Älvdalens kommun;Säbo Älvdalens kommun
+2180;Attendo Pukslagarvägens vård och omsorgsboende;Attendo PukslagarvägensVoB
+2180;Fleminggatans vård- och omsorgsboende 11, 15, 17;Fleminggatans VoB 11, 15, 17
+2284;Arnäsgården Vård-och Omsorgsboende;Arnäsgården VoB
+2284;Bjästa Vård- och Omsorgsboende;Bjästa VoB
+2284;Björkhem Vård- och Omsorgsboende;Björkhem VoB
+2284;Björnaborg Vård-och omsorgsboende;Björnaborg VoB
+2284;Båtsmanstorpet Vård-och Omsorgsboende;Båtsmanstorpet VoB
+2284;Lejonbacken Vård-och Omsorgsboende;Lejonbacken VoB
+2284;Myrtengården Vård-och Omsorgsboende;Myrtengården VoB
+2284;Prästbordet Vård-och Omsorgsboende;Prästbordet VoB
+2284;Sörgården Vård-och Omsorgsboende;Sörgården VoB
+2284;Örnsköldsgården Vård-och Omsorgsboende;Örnsköldsgården VoB
+2361;Hedegården Hede;Hede
+2480;Aktrisen vård- och omsorgsboende;Aktrisen VoB
+2480;Berghems vård- och omsorgsboende;Berghems VoB
+2480;Bruksbacken vård- och omsorgsboende;Bruksbacken VoB
+2480;Dragonens vård- och omsorgsboende;Dragonens VoB
+2480;Eriksdal vård- och omsorgsboende;Eriksdal VoB
+2480;Ersboda vård- och omsorgsboende;Ersboda VoB
+2480;Haga vård- och omsorgsboende;Haga VoB
+2480;Hemgården vård- och omsorgsboende;Hemgården VoB
+2480;Holmsunds vård- och omsorgsboende;Holmsunds VoB
+2480;Marielund vård- och omsorgsboende;Marielund VoB
+2480;Prästsjögården  vård- och omsorgsboende;Prästsjögården  VoB
+2480;Sjöjungfrun vård- och omsorgsboende;Sjöjungfrun VoB
+2480;Skräddaren vård- och omsorgsboende;Skräddaren VoB
+2480;Solbacken vård- och omsorgsboende;Solbacken VoB
+2480;Solgården vård- och omsorgsboende;Solgården VoB
+2480;Teg vård- och omsorgsboende;Teg VoB
+2480;Tomtebo vård- och omsorgsboende;Tomtebo VoB
+2506;Vaukagården/Tallbacken;Tallbacken/Vaukagården
